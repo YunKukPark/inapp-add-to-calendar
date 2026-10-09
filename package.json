@@ -1,0 +1,43 @@
+{
+  "name": "kakao-add-to-calendar",
+  "version": "0.1.0",
+  "description": "Add an event to Apple/Google Calendar from any browser, including the KakaoTalk in-app browser — as a one-time event, not a calendar subscription.",
+  "license": "MIT",
+  "author": "YunKukPark",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "calendar",
+    "ics",
+    "icalendar",
+    "google-calendar",
+    "apple-calendar",
+    "kakaotalk",
+    "in-app-browser",
+    "webview"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
+    "prepare": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YunKukPark/kakao-add-to-calendar.git"
+  }
+}
