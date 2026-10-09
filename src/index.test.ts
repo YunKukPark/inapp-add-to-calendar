@@ -68,16 +68,27 @@ function browser(href: string, userAgent: string) {
     replaceState: (_: unknown, __: string, url: string) => (location.href = url)
   };
   g.window = { open: (url: string) => opened.push(url) };
-  const onLoad: (() => void)[] = [];
-  g.document = { readyState: "complete" };
-  g.addEventListener = (type: string, fn: () => void) => type === "load" && onLoad.push(fn);
-  return { location, opened, onLoad };
+  const frames: { id: string; hidden: boolean; src: string; removed?: boolean }[] = [];
+  g.document = {
+    getElementById: (id: string) => {
+      const f = frames.find((f) => f.id === id && !f.removed);
+      return f && { remove: () => (f.removed = true) };
+    },
+    createElement: () => ({ id: "", hidden: false, src: "" }),
+    body: { append: (f: (typeof frames)[number]) => frames.push(f) }
+  };
+  return { location, opened, frames };
 }
 
-test("apple: normal browser navigates to the .ics in-page", () => {
-  const { location } = browser("https://example.com/invite", SAFARI_UA);
+test("apple: normal browser opens the .ics in one hidden iframe, page stays", () => {
+  const { location, frames } = browser("https://example.com/invite", SAFARI_UA);
   addToAppleCalendar({ icsUrl: "/calendar.ics" });
-  assert.equal(location.href, "https://example.com/calendar.ics");
+  addToAppleCalendar({ icsUrl: "/calendar.ics" });
+  assert.equal(location.href, "https://example.com/invite");
+  const live = frames.filter((f) => !f.removed);
+  assert.equal(live.length, 1);
+  assert.equal(live[0].hidden, true);
+  assert.equal(live[0].src, "https://example.com/calendar.ics");
 });
 
 test("apple: KakaoTalk reopens the page (not the .ics) in the default browser", () => {
@@ -89,9 +100,9 @@ test("apple: KakaoTalk reopens the page (not the .ics) in the default browser", 
   );
 });
 
-test("resume: opens the .ics once and cleans the address bar", () => {
+test("resume: opens the .ics and cleans the address bar", () => {
   const visited: string[] = [];
-  const { location } = browser("https://example.com/invite?ref=a&calendar=apple", SAFARI_UA);
+  const { frames } = browser("https://example.com/invite?ref=a&calendar=apple", SAFARI_UA);
   const g = globalThis as Record<string, unknown>;
   g.history = {
     state: null,
@@ -99,19 +110,10 @@ test("resume: opens the .ics once and cleans the address bar", () => {
   };
   assert.equal(resumeAppleCalendar({ icsUrl: "/calendar.ics" }), true);
   assert.deepEqual(visited, ["https://example.com/invite?ref=a"]);
-  assert.equal(location.href, "https://example.com/calendar.ics");
+  assert.equal(frames[0].src, "https://example.com/calendar.ics");
 
   browser("https://example.com/invite", SAFARI_UA);
   assert.equal(resumeAppleCalendar({ icsUrl: "/calendar.ics" }), false);
-});
-
-test("resume: waits for the page to finish loading", () => {
-  const { location, onLoad } = browser("https://example.com/?calendar=apple", SAFARI_UA);
-  (globalThis as Record<string, unknown>).document = { readyState: "interactive" };
-  assert.equal(resumeAppleCalendar({ icsUrl: "/calendar.ics" }), true);
-  assert.equal(location.href, "https://example.com/");
-  onLoad.forEach((fn) => fn());
-  assert.equal(location.href, "https://example.com/calendar.ics");
 });
 
 test("google: new tab normally, default browser from KakaoTalk", () => {

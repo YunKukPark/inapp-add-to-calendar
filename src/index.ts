@@ -93,15 +93,31 @@ export type AppleOptions = {
   resumeParam?: string;
 };
 
+const FRAME_ID = "kakao-add-to-calendar-ics";
+
+/**
+ * Open the .ics in a hidden iframe. iOS shows the "Add to Calendar" sheet over the page.
+ * Navigating the page itself to the .ics would make Safari cancel requests still in flight
+ * (scripts, images, fonts — the page can break) and, without a tap, ask to allow the invite.
+ */
+function openIcs(icsUrl: string) {
+  document.getElementById(FRAME_ID)?.remove();
+  const frame = document.createElement("iframe");
+  frame.id = FRAME_ID;
+  frame.hidden = true;
+  frame.src = new URL(icsUrl, location.href).href;
+  document.body.append(frame);
+}
+
 /**
  * Add to Apple Calendar (iPhone/iPad/Mac).
  *
- * - Normal browsers: navigate to the .ics from the page. iOS shows the "Add to Calendar"
+ * - Normal browsers: opens the .ics in a hidden iframe. iOS shows the "Add to Calendar"
  *   sheet over the page; closing it returns to the page.
  * - KakaoTalk: its in-app browser cannot open calendar files, and handing the .ics URL
  *   to the OS opens Calendar's "Add Subscription Calendar" screen instead. So this reopens
  *   the current page in the default browser with `?calendar=apple`; call
- *   `resumeAppleCalendar` on page load to continue there.
+ *   `resumeAppleCalendar` when the page starts to continue there.
  */
 export function addToAppleCalendar({ icsUrl, resumeParam = "calendar" }: AppleOptions) {
   if (isKakaoTalk(navigator.userAgent)) {
@@ -110,28 +126,20 @@ export function addToAppleCalendar({ icsUrl, resumeParam = "calendar" }: AppleOp
     location.href = kakaoExternalBrowserUrl(page.href);
     return;
   }
-  location.href = new URL(icsUrl, location.href).href;
+  openIcs(icsUrl);
 }
 
 /**
  * Call once when the page starts. If the page was opened by `addToAppleCalendar` from
- * KakaoTalk, removes the parameter from the address bar and, once the page has fully
- * loaded, opens the Apple Calendar sheet. Returns whether it will.
- *
- * It waits for `load` because leaving for the .ics while the page is still loading makes
- * Safari cancel in-flight requests (scripts, images, fonts) and the page breaks. Since the
- * navigation is then not tied to a tap, Safari asks once to allow the calendar invite.
+ * KakaoTalk, removes the parameter from the address bar and opens the Apple Calendar
+ * sheet. Returns whether it did.
  */
 export function resumeAppleCalendar({ icsUrl, resumeParam = "calendar" }: AppleOptions) {
   const page = new URL(location.href);
   if (page.searchParams.get(resumeParam) !== "apple") return false;
   page.searchParams.delete(resumeParam);
   history.replaceState(history.state, "", page.href);
-  const openIcs = () => {
-    location.href = new URL(icsUrl, location.href).href;
-  };
-  if (document.readyState === "complete") openIcs();
-  else addEventListener("load", openIcs, { once: true });
+  openIcs(icsUrl);
   return true;
 }
 
