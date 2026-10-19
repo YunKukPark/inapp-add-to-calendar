@@ -1,7 +1,7 @@
 {
-  "name": "kakao-add-to-calendar",
-  "version": "0.1.0",
-  "description": "Add an event to Apple/Google Calendar from any browser, including the KakaoTalk in-app browser — as a one-time event, not a calendar subscription.",
+  "name": "inapp-add-to-calendar",
+  "version": "0.2.0",
+  "description": "Add an event to Apple/Google Calendar from any browser, including in-app browsers (KakaoTalk, Naver, Instagram) — as a one-time event, not a calendar subscription.",
   "license": "MIT",
   "author": "YunKukPark",
   "type": "module",
@@ -22,6 +22,9 @@
     "google-calendar",
     "apple-calendar",
     "kakaotalk",
+    "naver",
+    "instagram",
+    "safari",
     "in-app-browser",
     "webview"
   ],
@@ -38,6 +41,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YunKukPark/kakao-add-to-calendar.git"
+    "url": "git+https://github.com/YunKukPark/inapp-add-to-calendar.git"
   }
 }

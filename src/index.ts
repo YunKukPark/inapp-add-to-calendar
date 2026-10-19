@@ -48,7 +48,7 @@ export function toIcs(event: CalendarEvent, now = new Date()) {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//kakao-add-to-calendar//EN",
+    "PRODID:-//inapp-add-to-calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
@@ -80,6 +80,20 @@ export function googleCalendarUrl(event: CalendarEvent) {
 
 export const isKakaoTalk = (userAgent: string) => /KAKAOTALK/i.test(userAgent);
 
+export const isIOS = (userAgent: string) => /iPhone|iPad|iPod/.test(userAgent);
+
+/**
+ * iOS Safari itself. Only Safari can show the "Add to Calendar" sheet for an .ics on iOS;
+ * other browsers and in-app browsers (KakaoTalk, Naver, Instagram, …) add their own token
+ * to the user agent and show a blank page instead.
+ */
+export const isIOSSafari = (userAgent: string) =>
+  isIOS(userAgent) &&
+  /Version\/[\d.]+.*Safari\//.test(userAgent) &&
+  !/CriOS|FxiOS|EdgiOS|OPiOS|KAKAOTALK|NAVER|Line\/|Instagram|FBAN|FBAV|DaumApps|BAND\//.test(
+    userAgent
+  );
+
 /** KakaoTalk scheme that opens `url` in the phone's default browser. */
 export const kakaoExternalBrowserUrl = (url: string) =>
   `kakaotalk://web/openExternal?url=${encodeURIComponent(url)}`;
@@ -89,11 +103,20 @@ export const kakaoExternalBrowserUrl = (url: string) =>
 export type AppleOptions = {
   /** Where your server serves `toIcs(...)`, e.g. "/calendar.ics". Must be same-site and https in production. */
   icsUrl: string;
-  /** Query parameter used to resume after leaving KakaoTalk. Default "calendar". */
+  /** Query parameter used to resume after leaving the in-app browser. Default "calendar". */
   resumeParam?: string;
+  /** How long to wait for the page to be hidden after handing it to Safari. Default 2000. */
+  leaveTimeoutMs?: number;
 };
 
-const FRAME_ID = "kakao-add-to-calendar-ics";
+/**
+ * - `opened`: the "Add to Calendar" sheet was opened here.
+ * - `left`: the page was handed to Safari (or the default browser), which continues via `resumeAppleCalendar`.
+ * - `open-in-safari`: nothing could open it here; ask the user to open the page in Safari.
+ */
+export type AppleResult = "opened" | "left" | "open-in-safari";
+
+const FRAME_ID = "inapp-add-to-calendar-ics";
 
 /**
  * Open the .ics in a hidden iframe. iOS shows the "Add to Calendar" sheet over the page.
@@ -109,38 +132,76 @@ function openIcs(icsUrl: string) {
   document.body.append(frame);
 }
 
+/** The current page with `?<resumeParam>=apple`, so the next browser continues the add. */
+function resumeUrl(resumeParam: string) {
+  const page = new URL(location.href);
+  page.searchParams.set(resumeParam, "apple");
+  return page.href;
+}
+
+/** Navigate to an app URL; resolves true if the page got hidden (the app opened) within `timeoutMs`. */
+const leaveTo = (url: string, timeoutMs: number) =>
+  new Promise<boolean>((resolve) => {
+    const finish = (left: boolean) => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onHide);
+      resolve(left);
+    };
+    const onHide = () => document.visibilityState === "hidden" && finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    document.addEventListener("visibilitychange", onHide);
+    location.href = url;
+  });
+
 /**
  * Add to Apple Calendar (iPhone/iPad/Mac).
  *
- * - Normal browsers: opens the .ics in a hidden iframe. iOS shows the "Add to Calendar"
- *   sheet over the page; closing it returns to the page.
- * - KakaoTalk: its in-app browser cannot open calendar files, and handing the .ics URL
- *   to the OS opens Calendar's "Add Subscription Calendar" screen instead. So this reopens
- *   the current page in the default browser with `?calendar=apple`; call
- *   `resumeAppleCalendar` when the page starts to continue there.
+ * - iOS Safari and non-iOS browsers: opens the .ics in a hidden iframe. iOS shows the
+ *   "Add to Calendar" sheet over the page; closing it returns to the page.
+ * - Other iOS browsers and in-app browsers: only Safari shows the sheet, and handing the .ics
+ *   URL to the OS opens Calendar's "Add Subscription Calendar" screen instead. So this reopens
+ *   the current page in Safari (`x-safari-https://`, iOS 17+) with `?calendar=apple`; call
+ *   `resumeAppleCalendar` when the page starts to continue there. If Safari does not open,
+ *   KakaoTalk falls back to its default browser, and anything else returns `open-in-safari`.
+ * - KakaoTalk on Android: reopens the page in the default browser.
  */
-export function addToAppleCalendar({ icsUrl, resumeParam = "calendar" }: AppleOptions) {
-  if (isKakaoTalk(navigator.userAgent)) {
-    const page = new URL(location.href);
-    page.searchParams.set(resumeParam, "apple");
-    location.href = kakaoExternalBrowserUrl(page.href);
-    return;
+export async function addToAppleCalendar({
+  icsUrl,
+  resumeParam = "calendar",
+  leaveTimeoutMs = 2000
+}: AppleOptions): Promise<AppleResult> {
+  const ua = navigator.userAgent;
+  if (isIOSSafari(ua) || (!isIOS(ua) && !isKakaoTalk(ua))) {
+    openIcs(icsUrl);
+    return "opened";
   }
-  openIcs(icsUrl);
+  const next = resumeUrl(resumeParam);
+  if (isIOS(ua) && (await leaveTo(`x-safari-${next}`, leaveTimeoutMs))) return "left";
+  if (isKakaoTalk(ua)) {
+    location.href = kakaoExternalBrowserUrl(next);
+    return "left";
+  }
+  return "open-in-safari";
 }
 
 /**
- * Call once when the page starts. If the page was opened by `addToAppleCalendar` from
- * KakaoTalk, removes the parameter from the address bar and opens the Apple Calendar
- * sheet. Returns whether it did.
+ * Call once when the page starts. If the page was opened by `addToAppleCalendar` from another
+ * browser, removes the parameter from the address bar and, in Safari, opens the Apple Calendar
+ * sheet (`opened`). Elsewhere (e.g. KakaoTalk opened Chrome as the default browser, or Android)
+ * the file cannot open without a tap, so it returns `needs-tap`: show the Apple button again.
+ * Returns false when there was nothing to resume.
  */
-export function resumeAppleCalendar({ icsUrl, resumeParam = "calendar" }: AppleOptions) {
+export function resumeAppleCalendar({
+  icsUrl,
+  resumeParam = "calendar"
+}: AppleOptions): "opened" | "needs-tap" | false {
   const page = new URL(location.href);
   if (page.searchParams.get(resumeParam) !== "apple") return false;
   page.searchParams.delete(resumeParam);
   history.replaceState(history.state, "", page.href);
+  if (!isIOSSafari(navigator.userAgent)) return "needs-tap";
   openIcs(icsUrl);
-  return true;
+  return "opened";
 }
 
 /** Add to Google Calendar: a new tab, or the default browser when inside KakaoTalk. */
