@@ -104,7 +104,7 @@ React가 아니어도 같습니다. 페이지가 시작될 때 `resumeAppleCalen
 | `resumeAppleCalendar({ icsUrl, resumeParam? })` | 브라우저 | 주소에 `?calendar=apple`이 있으면 주소에서 지웁니다. Safari면 `.ics`를 열고 `"opened"`, 그 밖은 탭 없이 열 수 없으므로 `"needs-tap"`, 이어서 열 것이 없으면 `false`를 돌려줍니다 |
 | `addToGoogleCalendar(event)`                    | 브라우저      | 새 탭으로 엽니다. 카카오톡에서는 기본 브라우저로 엽니다                                                                                                                                               |
 
-`event`: `{ title, start, end, location?, description?, uid? }`. `uid`를 주지 않으면 시작 시각과 제목으로 만듭니다. 같은 `uid`를 다시 추가하면 iOS는 새로 만들지 않고 기존 일정을 보여줍니다.
+`event`: `{ title, start, end, location?, description?, uid? }`. 하루 종일 일정은 `{ title, allDay: true, start: "2026-11-14", end?: "2026-11-15" }`처럼 날짜만 씁니다. `end`는 마지막 날(포함)이고, 없으면 하루짜리입니다. 시간대와 관계없이 모든 캘린더에서 같은 날짜에 보입니다. `uid`를 주지 않으면 시작 시각과 제목으로 만듭니다. 같은 `uid`를 다시 추가하면 iOS는 새로 만들지 않고 기존 일정을 보여줍니다.
 
 ## 확인한 범위
 

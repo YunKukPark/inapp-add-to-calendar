@@ -5,6 +5,13 @@ const utcStamp = (d) => d
     .toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}/, "");
+/** "2026-12-25" -> "20261225" */
+const dayStamp = (day) => day.replaceAll("-", "");
+const nextDay = (day) => new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+/** Start and end (exclusive) stamps: dates for all-day events, UTC times otherwise. */
+const stamps = (event) => event.allDay
+    ? { start: dayStamp(event.start), end: dayStamp(nextDay(event.end ?? event.start)) }
+    : { start: utcStamp(toDate(event.start)), end: utcStamp(toDate(event.end)) };
 const escapeText = (s) => s.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\r?\n/g, "\\n");
 // RFC 5545 §3.1: lines are at most 75 octets, so fold by UTF-8 bytes (Hangul is 3 bytes), not characters
 function fold(line) {
@@ -23,13 +30,14 @@ function fold(line) {
     return [...out, current].map((l, i) => (i ? ` ${l}` : l)).join("\r\n");
 }
 /**
- * A one-event .ics file. Times are written in UTC, so no VTIMEZONE block is needed.
+ * A one-event .ics file. Times are written in UTC and all-day events as dates,
+ * so no VTIMEZONE block is needed.
  * Serve it with `Content-Type: text/calendar; charset=utf-8`.
  */
 export function toIcs(event, now = new Date()) {
-    const start = toDate(event.start);
-    const end = toDate(event.end);
-    const uid = event.uid ?? `${utcStamp(start)}-${encodeURIComponent(event.title).slice(0, 40)}`;
+    const { start, end } = stamps(event);
+    const date = event.allDay ? ";VALUE=DATE" : "";
+    const uid = event.uid ?? `${start}-${encodeURIComponent(event.title).slice(0, 40)}`;
     return [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -39,8 +47,8 @@ export function toIcs(event, now = new Date()) {
         "BEGIN:VEVENT",
         `UID:${uid}`,
         `DTSTAMP:${utcStamp(now)}`,
-        `DTSTART:${utcStamp(start)}`,
-        `DTEND:${utcStamp(end)}`,
+        `DTSTART${date}:${start}`,
+        `DTEND${date}:${end}`,
         `SUMMARY:${escapeText(event.title)}`,
         ...(event.location ? [`LOCATION:${escapeText(event.location)}`] : []),
         ...(event.description ? [`DESCRIPTION:${escapeText(event.description)}`] : []),
@@ -52,11 +60,8 @@ export function toIcs(event, now = new Date()) {
 }
 /** Google Calendar "create event" link (not a subscription). */
 export function googleCalendarUrl(event) {
-    const params = new URLSearchParams({
-        action: "TEMPLATE",
-        text: event.title,
-        dates: `${utcStamp(toDate(event.start))}/${utcStamp(toDate(event.end))}`
-    });
+    const { start, end } = stamps(event);
+    const params = new URLSearchParams({ action: "TEMPLATE", text: event.title, dates: `${start}/${end}` });
     if (event.location)
         params.set("location", event.location);
     if (event.description)

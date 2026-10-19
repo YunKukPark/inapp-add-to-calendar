@@ -1,13 +1,28 @@
-export type CalendarEvent = {
+type EventDetails = {
   title: string;
-  /** Date or ISO 8601 string with an offset, e.g. "2026-12-25T11:00:00+09:00" */
-  start: Date | string;
-  end: Date | string;
   location?: string;
   description?: string;
   /** Stable id so adding twice updates the same event. Defaults to one derived from start + title. */
   uid?: string;
 };
+
+export type TimedEvent = EventDetails & {
+  allDay?: false;
+  /** Date or ISO 8601 string with an offset, e.g. "2026-12-25T11:00:00+09:00" */
+  start: Date | string;
+  end: Date | string;
+};
+
+/** Whole days, shown on the same dates in every time zone. */
+export type AllDayEvent = EventDetails & {
+  allDay: true;
+  /** "YYYY-MM-DD" */
+  start: string;
+  /** Last day, inclusive ("YYYY-MM-DD"). Defaults to `start` (a one-day event). */
+  end?: string;
+};
+
+export type CalendarEvent = TimedEvent | AllDayEvent;
 
 // ---------- pure: works on the server and in the browser ----------
 
@@ -19,6 +34,18 @@ const utcStamp = (d: Date) =>
     .toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}/, "");
+
+/** "2026-12-25" -> "20261225" */
+const dayStamp = (day: string) => day.replaceAll("-", "");
+
+const nextDay = (day: string) =>
+  new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+/** Start and end (exclusive) stamps: dates for all-day events, UTC times otherwise. */
+const stamps = (event: CalendarEvent) =>
+  event.allDay
+    ? { start: dayStamp(event.start), end: dayStamp(nextDay(event.end ?? event.start)) }
+    : { start: utcStamp(toDate(event.start)), end: utcStamp(toDate(event.end)) };
 
 const escapeText = (s: string) => s.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\r?\n/g, "\\n");
 
@@ -38,13 +65,14 @@ function fold(line: string) {
 }
 
 /**
- * A one-event .ics file. Times are written in UTC, so no VTIMEZONE block is needed.
+ * A one-event .ics file. Times are written in UTC and all-day events as dates,
+ * so no VTIMEZONE block is needed.
  * Serve it with `Content-Type: text/calendar; charset=utf-8`.
  */
 export function toIcs(event: CalendarEvent, now = new Date()) {
-  const start = toDate(event.start);
-  const end = toDate(event.end);
-  const uid = event.uid ?? `${utcStamp(start)}-${encodeURIComponent(event.title).slice(0, 40)}`;
+  const { start, end } = stamps(event);
+  const date = event.allDay ? ";VALUE=DATE" : "";
+  const uid = event.uid ?? `${start}-${encodeURIComponent(event.title).slice(0, 40)}`;
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -54,8 +82,8 @@ export function toIcs(event: CalendarEvent, now = new Date()) {
     "BEGIN:VEVENT",
     `UID:${uid}`,
     `DTSTAMP:${utcStamp(now)}`,
-    `DTSTART:${utcStamp(start)}`,
-    `DTEND:${utcStamp(end)}`,
+    `DTSTART${date}:${start}`,
+    `DTEND${date}:${end}`,
     `SUMMARY:${escapeText(event.title)}`,
     ...(event.location ? [`LOCATION:${escapeText(event.location)}`] : []),
     ...(event.description ? [`DESCRIPTION:${escapeText(event.description)}`] : []),
@@ -68,11 +96,8 @@ export function toIcs(event: CalendarEvent, now = new Date()) {
 
 /** Google Calendar "create event" link (not a subscription). */
 export function googleCalendarUrl(event: CalendarEvent) {
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: event.title,
-    dates: `${utcStamp(toDate(event.start))}/${utcStamp(toDate(event.end))}`
-  });
+  const { start, end } = stamps(event);
+  const params = new URLSearchParams({ action: "TEMPLATE", text: event.title, dates: `${start}/${end}` });
   if (event.location) params.set("location", event.location);
   if (event.description) params.set("details", event.description);
   return `https://calendar.google.com/calendar/render?${params}`;

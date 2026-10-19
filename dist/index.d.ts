@@ -1,15 +1,28 @@
-export type CalendarEvent = {
+type EventDetails = {
     title: string;
-    /** Date or ISO 8601 string with an offset, e.g. "2026-12-25T11:00:00+09:00" */
-    start: Date | string;
-    end: Date | string;
     location?: string;
     description?: string;
     /** Stable id so adding twice updates the same event. Defaults to one derived from start + title. */
     uid?: string;
 };
+export type TimedEvent = EventDetails & {
+    allDay?: false;
+    /** Date or ISO 8601 string with an offset, e.g. "2026-12-25T11:00:00+09:00" */
+    start: Date | string;
+    end: Date | string;
+};
+/** Whole days, shown on the same dates in every time zone. */
+export type AllDayEvent = EventDetails & {
+    allDay: true;
+    /** "YYYY-MM-DD" */
+    start: string;
+    /** Last day, inclusive ("YYYY-MM-DD"). Defaults to `start` (a one-day event). */
+    end?: string;
+};
+export type CalendarEvent = TimedEvent | AllDayEvent;
 /**
- * A one-event .ics file. Times are written in UTC, so no VTIMEZONE block is needed.
+ * A one-event .ics file. Times are written in UTC and all-day events as dates,
+ * so no VTIMEZONE block is needed.
  * Serve it with `Content-Type: text/calendar; charset=utf-8`.
  */
 export declare function toIcs(event: CalendarEvent, now?: Date): string;
@@ -62,3 +75,4 @@ export declare function addToAppleCalendar({ icsUrl, resumeParam, leaveTimeoutMs
 export declare function resumeAppleCalendar({ icsUrl, resumeParam }: AppleOptions): "opened" | "needs-tap" | false;
 /** Add to Google Calendar: a new tab, or the default browser when inside KakaoTalk. */
 export declare function addToGoogleCalendar(event: CalendarEvent): void;
+export {};

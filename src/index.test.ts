@@ -60,6 +60,15 @@ test("google: create-event link with UTC dates", () => {
   assert.equal(url.searchParams.get("text"), event.title);
 });
 
+test("all-day: dates without time zone, end is the day after the last day", () => {
+  const ics = toIcs({ title: "워크숍", allDay: true, start: "2026-12-31", end: "2027-01-01" });
+  assert.match(ics, /DTSTART;VALUE=DATE:20261231\r\n/);
+  assert.match(ics, /DTEND;VALUE=DATE:20270102\r\n/);
+  assert.match(ics, /UID:20261231-/);
+  const oneDay = new URL(googleCalendarUrl({ title: "a", allDay: true, start: "2026-11-14" }));
+  assert.equal(oneDay.searchParams.get("dates"), "20261114/20261115");
+});
+
 test("isKakaoTalk", () => {
   assert.equal(isKakaoTalk(KAKAO_UA), true);
   assert.equal(isKakaoTalk(SAFARI_UA), false);
