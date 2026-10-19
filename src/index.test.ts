@@ -6,9 +6,13 @@ import {
   addToGoogleCalendar,
   type CalendarEvent,
   googleCalendarUrl,
+  addToSamsungCalendar,
   isIOSSafari,
   isKakaoTalk,
+  mayBeSamsung,
   resumeAppleCalendar,
+  resumeSamsungCalendar,
+  samsungCalendarIntentUrl,
   toIcs
 } from "./index.ts";
 
@@ -196,4 +200,62 @@ test("google: new tab normally, default browser from KakaoTalk", () => {
       "kakaotalk://web/openExternal?url=https%3A%2F%2Fcalendar.google.com"
     )
   );
+});
+
+const GALAXY_CHROME_UA =
+  "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+const PIXEL_WEBVIEW_UA =
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A.240805.005; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36";
+const SAMSUNG_INTERNET_UA =
+  "Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/26.0 Chrome/122.0.0.0 Mobile Safari/537.36";
+
+test("mayBeSamsung: Galaxy models and hidden models yes, other models and non-Android no", () => {
+  for (const ua of [ANDROID_KAKAO_UA, GALAXY_CHROME_UA, SAMSUNG_INTERNET_UA]) assert.equal(mayBeSamsung(ua), true, ua);
+  for (const ua of [PIXEL_WEBVIEW_UA, SAFARI_UA, DESKTOP_UA]) assert.equal(mayBeSamsung(ua), false, ua);
+});
+
+test("samsung: intent link with encoded extras, UTC midnight for all-day", () => {
+  const url = samsungCalendarIntentUrl(event, "https://example.com/e?calendar=samsung-missing");
+  assert.ok(url.startsWith("intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.item/event;package=com.samsung.android.calendar;"));
+  assert.ok(url.endsWith(";end"));
+  assert.ok(url.includes(`S.title=${encodeURIComponent(event.title)};`));
+  assert.ok(url.includes(`l.beginTime=${Date.parse("2026-12-25T02:00:00Z")};`));
+  assert.ok(url.includes(`l.endTime=${Date.parse("2026-12-25T04:00:00Z")};`));
+  assert.ok(url.includes("B.allDay=false;"));
+  assert.ok(url.includes(`S.browser_fallback_url=${encodeURIComponent("https://example.com/e?calendar=samsung-missing")};`));
+  assert.ok(!url.includes("S.description"));
+
+  const allDay = samsungCalendarIntentUrl({ title: "a", allDay: true, start: "2026-11-14" }, "https://x.test/");
+  assert.ok(allDay.includes(`l.beginTime=${Date.parse("2026-11-14T00:00:00Z")};l.endTime=${Date.parse("2026-11-15T00:00:00Z")};B.allDay=true;`));
+});
+
+test("samsung: opens the intent; KakaoTalk hands the page to the default browser first", async () => {
+  const chrome = browser("https://example.com/e/1", GALAXY_CHROME_UA);
+  const result = addToSamsungCalendar(event, { leaveTimeoutMs: 10 });
+  assert.ok(chrome.location.href.startsWith("intent:#Intent;"));
+  assert.ok(chrome.location.href.includes(encodeURIComponent("https://example.com/e/1?calendar=samsung-missing")));
+  chrome.hide();
+  assert.equal(await result, "opened");
+
+  browser("https://example.com/e/1", GALAXY_CHROME_UA);
+  assert.equal(await addToSamsungCalendar(event, { leaveTimeoutMs: 10 }), "not-opened");
+
+  const kakao = browser("https://example.com/e/1", ANDROID_KAKAO_UA);
+  assert.equal(await addToSamsungCalendar(event), "left");
+  assert.equal(
+    kakao.location.href,
+    `kakaotalk://web/openExternal?url=${encodeURIComponent("https://example.com/e/1?calendar=samsung")}`
+  );
+});
+
+test("resume samsung: needs a tap after KakaoTalk, missing app after the fallback", () => {
+  const tap = browser("https://example.com/e/1?calendar=samsung", GALAXY_CHROME_UA);
+  assert.equal(resumeSamsungCalendar(), "needs-tap");
+  assert.equal(tap.location.href, "https://example.com/e/1");
+
+  browser("https://example.com/e/1?calendar=samsung-missing", GALAXY_CHROME_UA);
+  assert.equal(resumeSamsungCalendar(), "missing");
+
+  browser("https://example.com/e/1?calendar=apple", GALAXY_CHROME_UA);
+  assert.equal(resumeSamsungCalendar(), false);
 });

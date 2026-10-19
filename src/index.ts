@@ -107,6 +107,20 @@ export const isKakaoTalk = (userAgent: string) => /KAKAOTALK/i.test(userAgent);
 
 export const isIOS = (userAgent: string) => /iPhone|iPad|iPod/.test(userAgent);
 
+export const isAndroid = (userAgent: string) => /Android/.test(userAgent);
+
+/**
+ * An Android phone that may be a Galaxy (Samsung Calendar preinstalled). Samsung Internet and
+ * in-app WebViews show the model ("SM-S918N"), but Chrome hides it ("Android 10; K"), so an
+ * unknown model counts as maybe; only a known non-Samsung model (Pixel, …) returns false.
+ */
+export const mayBeSamsung = (userAgent: string) => {
+  if (!isAndroid(userAgent)) return false;
+  if (/SamsungBrowser|SAMSUNG/i.test(userAgent)) return true;
+  const model = /Android [\d.]+; ([^;)]+)/.exec(userAgent)?.[1].trim();
+  return !model || model === "K" || /^(SM-|SHV-|SCH-|SGH-)/.test(model);
+};
+
 /**
  * iOS Safari itself. Only Safari can show the "Add to Calendar" sheet for an .ics on iOS;
  * other browsers and in-app browsers (KakaoTalk, Naver, Instagram, …) add their own token
@@ -118,6 +132,40 @@ export const isIOSSafari = (userAgent: string) =>
   !/CriOS|FxiOS|EdgiOS|OPiOS|KAKAOTALK|NAVER|Line\/|Instagram|FBAN|FBAV|DaumApps|BAND\//.test(
     userAgent
   );
+
+const SAMSUNG_CALENDAR = "com.samsung.android.calendar";
+
+/** Milliseconds for Android's calendar intent: UTC midnight for all-day events, end exclusive. */
+const millis = (event: CalendarEvent) =>
+  event.allDay
+    ? { begin: Date.parse(`${event.start}T00:00:00Z`), end: Date.parse(`${nextDay(event.end ?? event.start)}T00:00:00Z`) }
+    : { begin: toDate(event.start).getTime(), end: toDate(event.end).getTime() };
+
+/**
+ * Android `intent:` link that opens Samsung Calendar's "new event" screen, filled in
+ * (the standard `ACTION_INSERT` calendar intent). When Samsung Calendar is not installed,
+ * the browser goes to `fallbackUrl` (must be http(s)).
+ */
+export function samsungCalendarIntentUrl(event: CalendarEvent, fallbackUrl: string) {
+  const { begin, end } = millis(event);
+  const extras = [
+    ["S.title", event.title],
+    ["S.eventLocation", event.location],
+    ["S.description", event.description],
+    ["l.beginTime", String(begin)],
+    ["l.endTime", String(end)],
+    ["B.allDay", String(!!event.allDay)],
+    ["S.browser_fallback_url", fallbackUrl]
+  ].flatMap(([key, value]) => (value === undefined ? [] : [`${key}=${encodeURIComponent(value)}`]));
+  return [
+    "intent:#Intent",
+    "action=android.intent.action.INSERT",
+    "type=vnd.android.cursor.item/event",
+    `package=${SAMSUNG_CALENDAR}`,
+    ...extras,
+    "end"
+  ].join(";");
+}
 
 /** KakaoTalk scheme that opens `url` in the phone's default browser. */
 export const kakaoExternalBrowserUrl = (url: string) =>
@@ -157,11 +205,21 @@ function openIcs(icsUrl: string) {
   document.body.append(frame);
 }
 
-/** The current page with `?<resumeParam>=apple`, so the next browser continues the add. */
-function resumeUrl(resumeParam: string) {
+/** The current page with `?<resumeParam>=<value>`, so the next page load continues the add. */
+function resumeUrl(resumeParam: string, value: string) {
   const page = new URL(location.href);
-  page.searchParams.set(resumeParam, "apple");
+  page.searchParams.set(resumeParam, value);
   return page.href;
+}
+
+/** Reads and removes `?<resumeParam>=…` from the address bar. */
+function takeResume(resumeParam: string) {
+  const page = new URL(location.href);
+  const value = page.searchParams.get(resumeParam);
+  if (value === null) return null;
+  page.searchParams.delete(resumeParam);
+  history.replaceState(history.state, "", page.href);
+  return value;
 }
 
 /** Navigate to an app URL; resolves true if the page got hidden (the app opened) within `timeoutMs`. */
@@ -200,7 +258,7 @@ export async function addToAppleCalendar({
     openIcs(icsUrl);
     return "opened";
   }
-  const next = resumeUrl(resumeParam);
+  const next = resumeUrl(resumeParam, "apple");
   if (isIOS(ua) && (await leaveTo(`x-safari-${next}`, leaveTimeoutMs))) return "left";
   if (isKakaoTalk(ua)) {
     location.href = kakaoExternalBrowserUrl(next);
@@ -220,10 +278,8 @@ export function resumeAppleCalendar({
   icsUrl,
   resumeParam = "calendar"
 }: AppleOptions): "opened" | "needs-tap" | false {
-  const page = new URL(location.href);
-  if (page.searchParams.get(resumeParam) !== "apple") return false;
-  page.searchParams.delete(resumeParam);
-  history.replaceState(history.state, "", page.href);
+  if (new URL(location.href).searchParams.get(resumeParam) !== "apple") return false;
+  takeResume(resumeParam);
   if (!isIOSSafari(navigator.userAgent)) return "needs-tap";
   openIcs(icsUrl);
   return "opened";
@@ -237,4 +293,48 @@ export function addToGoogleCalendar(event: CalendarEvent) {
     return;
   }
   window.open(url, "_blank", "noopener");
+}
+
+export type SamsungOptions = {
+  /** Query parameter used to resume after leaving the in-app browser. Default "calendar". */
+  resumeParam?: string;
+  /** How long to wait for Samsung Calendar to take over the screen. Default 2000. */
+  leaveTimeoutMs?: number;
+};
+
+/**
+ * - `opened`: Samsung Calendar's "new event" screen opened.
+ * - `left`: KakaoTalk handed the page to the default browser, which continues via `resumeSamsungCalendar`.
+ * - `not-opened`: nothing opened in time; if Samsung Calendar is missing, the browser is already
+ *   going to the page with `?calendar=samsung-missing`.
+ */
+export type SamsungResult = "opened" | "left" | "not-opened";
+
+/**
+ * Add to Samsung Calendar (Galaxy). Opens the calendar's "new event" screen with an `intent:` link.
+ * KakaoTalk's in-app browser is not known to open `intent:` links, so from KakaoTalk this reopens
+ * the page in the default browser with `?calendar=samsung`; call `resumeSamsungCalendar` there.
+ */
+export async function addToSamsungCalendar(
+  event: CalendarEvent,
+  { resumeParam = "calendar", leaveTimeoutMs = 2000 }: SamsungOptions = {}
+): Promise<SamsungResult> {
+  if (isKakaoTalk(navigator.userAgent)) {
+    location.href = kakaoExternalBrowserUrl(resumeUrl(resumeParam, "samsung"));
+    return "left";
+  }
+  const url = samsungCalendarIntentUrl(event, resumeUrl(resumeParam, "samsung-missing"));
+  return (await leaveTo(url, leaveTimeoutMs)) ? "opened" : "not-opened";
+}
+
+/**
+ * Call once when the page starts, next to `resumeAppleCalendar`. Removes the parameter and returns
+ * `needs-tap` (came from KakaoTalk; the browser opens `intent:` links only on a tap, so show the
+ * Samsung button again) or `missing` (Samsung Calendar is not installed). Otherwise `false`.
+ */
+export function resumeSamsungCalendar({ resumeParam = "calendar" }: SamsungOptions = {}): "needs-tap" | "missing" | false {
+  const value = new URL(location.href).searchParams.get(resumeParam);
+  if (value !== "samsung" && value !== "samsung-missing") return false;
+  takeResume(resumeParam);
+  return value === "samsung" ? "needs-tap" : "missing";
 }

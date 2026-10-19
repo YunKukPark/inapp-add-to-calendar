@@ -1,6 +1,6 @@
 # inapp-add-to-calendar
 
-웹페이지에서 Apple·Google 캘린더에 **일정 하나를 추가**합니다. 카카오톡·네이버·인스타그램 같은 인앱 브라우저에서도 동작합니다. 캘린더를 **구독**시키지 않습니다.
+웹페이지에서 Apple·Google·삼성 캘린더에 **일정 하나를 추가**합니다. 카카오톡·네이버·인스타그램 같은 인앱 브라우저에서도 동작합니다. 캘린더를 **구독**시키지 않습니다.
 
 Add a single event to Apple or Google Calendar from a web page, including inside in-app browsers (KakaoTalk, Naver, Instagram, …). It adds the event; it never subscribes the user to a calendar. No dependencies. About 150 lines.
 
@@ -103,6 +103,11 @@ React가 아니어도 같습니다. 페이지가 시작될 때 `resumeAppleCalen
 | `addToAppleCalendar({ icsUrl, resumeParam?, leaveTimeoutMs? })` | 브라우저 | iOS Safari·데스크톱은 숨은 iframe으로 `.ics`를 엽니다(`"opened"`). iOS의 다른 브라우저·인앱은 현재 페이지에 `?calendar=apple`을 붙여 Safari로 엽니다(`"left"`). Safari가 안 열리면 카카오톡은 기본 브라우저로 열고(`"left"`), 그 밖은 `"open-in-safari"`를 돌려줍니다. 안내 문구는 앱이 띄웁니다 |
 | `resumeAppleCalendar({ icsUrl, resumeParam? })` | 브라우저 | 주소에 `?calendar=apple`이 있으면 주소에서 지웁니다. Safari면 `.ics`를 열고 `"opened"`, 그 밖은 탭 없이 열 수 없으므로 `"needs-tap"`, 이어서 열 것이 없으면 `false`를 돌려줍니다 |
 | `addToGoogleCalendar(event)`                    | 브라우저      | 새 탭으로 엽니다. 카카오톡에서는 기본 브라우저로 엽니다                                                                                                                                               |
+| `isAndroid(userAgent)`                          | 서버·브라우저 | Android인지 확인 |
+| `mayBeSamsung(userAgent)`                       | 서버·브라우저 | 갤럭시일 수 있는지 확인. 삼성 인터넷·인앱 브라우저는 모델명(`SM-…`)으로 알 수 있지만, Chrome은 모델명을 숨겨서(`Android 10; K`) 이 경우도 `true`입니다. 다른 회사 모델(Pixel 등)이 보이면 `false` |
+| `samsungCalendarIntentUrl(event, fallbackUrl)`  | 서버·브라우저 | 삼성 캘린더 "새 일정" 화면을 채워서 여는 `intent:` 링크(Android 표준 `ACTION_INSERT`). 삼성 캘린더가 없으면 브라우저가 `fallbackUrl`로 갑니다 |
+| `addToSamsungCalendar(event, { resumeParam?, leaveTimeoutMs? })` | 브라우저 | 삼성 캘린더를 엽니다(`"opened"`). 없으면 현재 페이지에 `?calendar=samsung-missing`을 붙여 다시 엽니다. 카카오톡에서는 `intent:`를 열 수 있는지 확인하지 못해 기본 브라우저로 넘깁니다(`"left"`, `?calendar=samsung`) |
+| `resumeSamsungCalendar({ resumeParam? })`       | 브라우저 | 주소의 `?calendar=samsung`·`samsung-missing`을 지우고 `"needs-tap"`(브라우저는 탭이 있어야 `intent:`를 엽니다)·`"missing"`을 돌려줍니다. 없으면 `false` |
 
 `event`: `{ title, start, end, location?, description?, uid? }`. 하루 종일 일정은 `{ title, allDay: true, start: "2026-11-14", end?: "2026-11-15" }`처럼 날짜만 씁니다. `end`는 마지막 날(포함)이고, 없으면 하루짜리입니다. 시간대와 관계없이 모든 캘린더에서 같은 날짜에 보입니다. `uid`를 주지 않으면 시작 시각과 제목으로 만듭니다. 같은 `uid`를 다시 추가하면 iOS는 새로 만들지 않고 기존 일정을 보여줍니다.
 
@@ -116,6 +121,7 @@ React가 아니어도 같습니다. 페이지가 시작될 때 `resumeAppleCalen
   - 카카오톡처럼 `.ics` 주소를 OS에 바로 넘기면 "구독 캘린더 추가" 화면이 열림
   - 페이지 자체를 `.ics`로 이동하면 받던 요청이 끊김. 지도 스크립트가 끊기면 페이지 전체가 오류 화면이 됨
 - **인앱 → Safari 넘기기는 이 라이브러리 단독으로 실기기 확인하지 않았습니다**: `x-safari-https://`와 카카오톡 `openExternal` 흐름은 이 코드를 처음 쓴 청첩장 서비스에서 옮겨 왔습니다. 다른 인앱 브라우저가 `x-safari-https://`를 막으면 `"open-in-safari"`가 돌아옵니다.
+- **삼성 캘린더는 실기기에서 확인하지 않았습니다**: 단위 테스트로 링크 모양과 흐름만 확인했습니다. 삼성 캘린더가 `ACTION_INSERT`의 제목·시간·장소를 받는지, 카카오톡·삼성 인터넷·Chrome에서 각각 열리는지는 갤럭시에서 확인이 필요합니다.
 - **Android는 확인하지 않았습니다**: Apple 버튼은 iframe으로 `.ics`를 받습니다. Chrome이 이를 내려받기로 처리하고, 기기 캘린더 앱이 그 파일을 여는지는 실기기에서 확인이 필요합니다. Android에서는 Google 버튼을 쓰는 것이 확실합니다.
 
 ## 개발
