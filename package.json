@@ -1,6 +1,6 @@
 {
   "name": "inapp-add-to-calendar",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Add an event to Apple/Google Calendar from any browser, including in-app browsers (KakaoTalk, Naver, Instagram) — as a one-time event, not a calendar subscription.",
   "license": "MIT",
   "author": "YunKukPark",
@@ -32,8 +32,7 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "node --test",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
-    "prepare": "tsc -p tsconfig.build.json"
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

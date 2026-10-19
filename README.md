@@ -118,6 +118,10 @@ React가 아니어도 같습니다. 페이지가 시작될 때 `resumeAppleCalen
 - **인앱 → Safari 넘기기는 이 라이브러리 단독으로 실기기 확인하지 않았습니다**: `x-safari-https://`와 카카오톡 `openExternal` 흐름은 이 코드를 처음 쓴 청첩장 서비스에서 옮겨 왔습니다. 다른 인앱 브라우저가 `x-safari-https://`를 막으면 `"open-in-safari"`가 돌아옵니다.
 - **Android는 확인하지 않았습니다**: Apple 버튼은 iframe으로 `.ics`를 받습니다. Chrome이 이를 내려받기로 처리하고, 기기 캘린더 앱이 그 파일을 여는지는 실기기에서 확인이 필요합니다. Android에서는 Google 버튼을 쓰는 것이 확실합니다.
 
+## 개발
+
+`github:` 주소로 설치할 때 빌드 스크립트를 돌리지 않도록 빌드 결과(`dist`)를 함께 커밋합니다. `src`를 고치면 `pnpm typecheck && pnpm test && pnpm build` 뒤에 `dist`도 같이 커밋하세요.
+
 ## License
 
 MIT
